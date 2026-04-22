@@ -1,0 +1,7 @@
+streamlit
+xarray
+netCDF4
+h5netcdf
+numpy
+matplotlib
+dask
