@@ -8,7 +8,7 @@ from matplotlib import cm
 # -------------------------------
 # USER SETTINGS
 # -------------------------------
-BASE_DIR = Path("/data/proteus4/backup/dba/Documents/PML/projects/ML/dream_fresh/FINAL_withbathyrivmod/FINAL_predict_2/upload/compressed/")
+BASE_DIR = Path("compressed/")
 FILE_PATTERN = "NO3_predictions_RF_paral_{year}_compressed.nc"
 
 APP_TITLE = "Machine-Learned Predicted Nitrate"
