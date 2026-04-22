@@ -45,6 +45,8 @@ st.write(APP_SUBTITLE)
 st.markdown(
     """
 This work is carried out at **Plymouth Marine Laboratory (PML), Plymouth, UK**.
+
+**Visualisation created by:** Deep S. Banerjee (dba@pml.ac.uk)
 """
 )
 
