@@ -35,6 +35,11 @@ FUNDING_TEXT = (
     "Sector Science (CLASS) project (NE/R015953/1)."
 )
 
+VAR_NAME = "prediction"
+TIME_NAME = "time"
+LAT_NAME = "lat"
+LON_NAME = "lon"
+
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 st.title(APP_TITLE)
 st.write(APP_SUBTITLE)
@@ -71,37 +76,35 @@ st.info(FUNDING_TEXT)
 # HELPERS
 # -------------------------------
 @st.cache_data
-def list_files():
-    files = []
+def list_available_years():
+    years = []
     for year in range(1998, 2019):
         f = BASE_DIR / FILE_PATTERN.format(year=year)
         if f.exists():
-            files.append(f)
-    return files
+            years.append(year)
+    return years
 
-@st.cache_data
-def open_dataset():
-    files = list_files()
-    if not files:
-        raise FileNotFoundError("No NetCDF files found in 'compressed/'.")
+def file_for_year(year):
+    return BASE_DIR / FILE_PATTERN.format(year=year)
 
-    ds = xr.open_mfdataset(files, combine="by_coords")
+@st.cache_resource
+def open_year_dataset(year):
+    f = file_for_year(year)
+    if not f.exists():
+        raise FileNotFoundError(f"Missing file: {f}")
 
-    var_name = "prediction"
-    time_name = "time"
-    lat_name = "lat"
-    lon_name = "lon"
+    ds = xr.open_dataset(f)
 
-    if var_name not in ds.variables:
-        raise ValueError(f"Variable '{var_name}' not found.")
-    if time_name not in ds.variables and time_name not in ds.coords:
-        raise ValueError(f"Time variable '{time_name}' not found.")
-    if lat_name not in ds.variables and lat_name not in ds.coords:
-        raise ValueError(f"Latitude variable '{lat_name}' not found.")
-    if lon_name not in ds.variables and lon_name not in ds.coords:
-        raise ValueError(f"Longitude variable '{lon_name}' not found.")
+    if VAR_NAME not in ds.variables:
+        raise ValueError(f"Variable '{VAR_NAME}' not found in {f}")
+    if TIME_NAME not in ds.variables and TIME_NAME not in ds.coords:
+        raise ValueError(f"Time variable '{TIME_NAME}' not found in {f}")
+    if LAT_NAME not in ds.variables and LAT_NAME not in ds.coords:
+        raise ValueError(f"Latitude variable '{LAT_NAME}' not found in {f}")
+    if LON_NAME not in ds.variables and LON_NAME not in ds.coords:
+        raise ValueError(f"Longitude variable '{LON_NAME}' not found in {f}")
 
-    return ds, var_name, time_name, lat_name, lon_name
+    return ds
 
 def mask_invalid(da):
     return xr.where(np.isfinite(da) & (da < 1e20) & (da > -1e20), da, np.nan)
@@ -122,36 +125,63 @@ def make_pretty_cmap():
     cmap.set_bad(color="#d9d9d9")
     return cmap
 
+@st.cache_data
+def get_dates_for_year(year):
+    ds = open_year_dataset(year)
+    dates = np.array(ds[TIME_NAME].values).astype("datetime64[D]")
+    return dates
+
+@st.cache_data
+def get_map_for_date(year, selected_date):
+    ds = open_year_dataset(year)
+    data2d = ds[VAR_NAME].sel({TIME_NAME: selected_date}, method="nearest")
+    data2d = mask_invalid(data2d).load()  # only one 2D slice
+    actual_time = data2d[TIME_NAME].values
+    actual_date = np.datetime_as_string(actual_time, unit="D")
+    return data2d, actual_date
+
+@st.cache_data
+def get_point_series_all_years(j, i):
+    all_times = []
+    all_vals = []
+
+    years = list_available_years()
+    for year in years:
+        f = file_for_year(year)
+        with xr.open_dataset(f) as ds:
+            point = mask_invalid(ds[VAR_NAME].isel(lat=j, lon=i)).load()
+            all_times.append(np.array(point[TIME_NAME].values))
+            all_vals.append(np.array(point.values, dtype=np.float32))
+
+    times = np.concatenate(all_times)
+    vals = np.concatenate(all_vals)
+    return times, vals
+
 # -------------------------------
-# LOAD DATA
+# LOAD YEARS
 # -------------------------------
-try:
-    ds, var_name, time_name, lat_name, lon_name = open_dataset()
-except Exception as e:
-    st.error(f"Error opening dataset: {e}")
-    files = list_files()
-    if files:
-        ds_debug = xr.open_dataset(files[0])
-        st.write("First file:", str(files[0]))
-        st.write("Variables:", list(ds_debug.variables))
-        st.write("Coordinates:", list(ds_debug.coords))
-        st.write("Dimensions:", dict(ds_debug.sizes))
+years = list_available_years()
+if not years:
+    st.error("No NetCDF files found in 'compressed/'.")
     st.stop()
-
-times = ds[time_name].values
-dates = np.array(times).astype("datetime64[D]")
-
-if len(dates) == 0:
-    st.error("No time values found in dataset.")
-    st.stop()
-
-lat = ds[lat_name]
-lon = ds[lon_name]
 
 # -------------------------------
 # SIDEBAR CONTROLS
 # -------------------------------
 st.sidebar.header("Controls")
+
+selected_year = st.sidebar.selectbox("Select year", years, index=0)
+
+try:
+    ds_year = open_year_dataset(selected_year)
+    dates = get_dates_for_year(selected_year)
+except Exception as e:
+    st.error(f"Error opening dataset for {selected_year}: {e}")
+    st.stop()
+
+if len(dates) == 0:
+    st.error("No time values found in selected dataset.")
+    st.stop()
 
 selected_date = st.sidebar.select_slider(
     "Select date",
@@ -159,14 +189,13 @@ selected_date = st.sidebar.select_slider(
     value=dates[0]
 )
 
+lat = ds_year[LAT_NAME]
+lon = ds_year[LON_NAME]
+
 # -------------------------------
 # EXTRACT MAP DATA
 # -------------------------------
-data2d = ds[var_name].sel({time_name: selected_date}, method="nearest")
-data2d = mask_invalid(data2d)
-
-actual_time = data2d[time_name].values
-actual_date = np.datetime_as_string(actual_time, unit="D")
+data2d, actual_date = get_map_for_date(selected_year, selected_date)
 
 # -------------------------------
 # SPATIAL PLOT
@@ -177,14 +206,15 @@ if np.all(np.isnan(data2d.values)):
     st.warning("All values are invalid/NaN for this selected date.")
 else:
     cmap = make_pretty_cmap()
-    data_ma = np.ma.masked_invalid(data2d.values)
+    data_vals = np.array(data2d.values, dtype=np.float32)
+    data_ma = np.ma.masked_invalid(data_vals)
 
-    valid_min = float(np.nanpercentile(data2d.values, 2))
-    valid_max = float(np.nanpercentile(data2d.values, 98))
+    valid_min = float(np.nanpercentile(data_vals, 2))
+    valid_max = float(np.nanpercentile(data_vals, 98))
 
     if np.isclose(valid_min, valid_max):
-        valid_min = float(np.nanmin(data2d.values))
-        valid_max = float(np.nanmax(data2d.values))
+        valid_min = float(np.nanmin(data_vals))
+        valid_max = float(np.nanmax(data_vals))
 
     fig, ax = plt.subplots(figsize=(8.8, 5.6), dpi=140)
     ax.set_facecolor("#d9d9d9")
@@ -199,8 +229,7 @@ else:
         vmax=valid_max
     )
 
-    # Land-sea boundary from valid ocean mask
-    valid_mask = np.isfinite(data2d.values).astype(float)
+    valid_mask = np.isfinite(data_vals).astype(float)
     lon2d, lat2d = np.meshgrid(lon.values, lat.values)
     ax.contour(
         lon2d,
@@ -232,6 +261,7 @@ else:
     )
 
     st.pyplot(fig, clear_figure=True)
+    plt.close(fig)
 
 # -------------------------------
 # LOCATION INSPECTION
@@ -273,9 +303,6 @@ if j is None or i is None:
 pv = data2d.isel(lat=j, lon=i).values
 point_val = float(pv) if np.isfinite(pv) else np.nan
 
-point_series = ds[var_name].isel(lat=j, lon=i)
-point_series = mask_invalid(point_series)
-
 point_lat = float(lat.values[j])
 point_lon = float(lon.values[i])
 
@@ -284,22 +311,24 @@ st.write(f"Nearest valid ocean grid point: lat = {point_lat:.4f}, lon = {point_l
 if np.isfinite(point_val):
     st.write(f"Predicted nitrate on {actual_date}: **{point_val:.4f} {NITRATE_UNIT}**")
 else:
-    st.write("Predicted nitrate on {actual_date}: **NaN / invalid**")
+    st.write(f"Predicted nitrate on {actual_date}: **NaN / invalid**")
 
 # -------------------------------
 # TIME SERIES PLOT
 # -------------------------------
 st.subheader("Time series at selected grid point")
 
-if np.all(np.isnan(point_series.values)):
+times_ts, vals_ts = get_point_series_all_years(j, i)
+
+if np.all(np.isnan(vals_ts)):
     st.warning("All time-series values are invalid/NaN at this selected grid point.")
 else:
     fig2, ax2 = plt.subplots(figsize=(8.8, 3.5), dpi=140)
 
     ax2.plot(
-        ds[time_name].values,
-        point_series.values,
-        linewidth=1.3
+        times_ts,
+        vals_ts,
+        linewidth=1.1
     )
 
     if np.isfinite(point_val):
@@ -332,3 +361,4 @@ else:
     )
 
     st.pyplot(fig2, clear_figure=True)
+    plt.close(fig2)

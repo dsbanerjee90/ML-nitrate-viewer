@@ -1,7 +1,6 @@
-streamlit
+streamlit>=1.52,<1.53
 xarray
 netCDF4
 h5netcdf
 numpy
 matplotlib
-dask
