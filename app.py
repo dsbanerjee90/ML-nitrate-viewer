@@ -8,20 +8,62 @@ from matplotlib import cm
 # -------------------------------
 # USER SETTINGS
 # -------------------------------
-BASE_DIR = Path("compressed/")
+BASE_DIR = Path("compressed")
 FILE_PATTERN = "NO3_predictions_RF_paral_{year}_compressed.nc"
 
 APP_TITLE = "Machine-Learned Predicted Nitrate"
 APP_SUBTITLE = "Interactive viewer for daily gridded surface nitrate (1998–2018)"
+NITRATE_UNIT = "mmol N m$^{-3}$"
 
-DOI_TEXT = (
-    "Banerjee et al. "
-    "(DOI: 10.5194/bg-22-3769-2025; DOI: 10.1002/qj.70156)"
+PAPER1_TITLE = "Improved understanding of nitrate trends, eutrophication indicators, and risk areas using machine learning"
+PAPER1_LINK = "https://doi.org/10.5194/bg-22-3769-2025"
+
+PAPER2_TITLE = "Assimilation of machine-learning-predicted nitrate to improve the quality of phytoplankton forecasting in the shelf-sea environment"
+PAPER2_LINK = "https://doi.org/10.1002/qj.70156"
+
+DATA_ZENODO_LINK = "https://doi.org/10.5281/zenodo.19695959"
+
+DOI_TEXT = "Banerjee et al. (10.5194/bg-22-3769-2025; 10.1002/qj.70156)"
+
+FUNDING_TEXT = (
+    "This work is carried out at Plymouth Marine Laboratory (PML), Plymouth, UK. "
+    "This research was supported by the Horizon Europe project "
+    "'New Copernicus Capability for Tropic Ocean Networks' "
+    "(NECCTON; grant agreement no. 101081273), and by the UK Natural "
+    "Environment Research Council (NERC) National Capability – Science "
+    "Single Centre Research programme and the Climate Linked Atlantic "
+    "Sector Science (CLASS) project (NE/R015953/1)."
 )
 
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 st.title(APP_TITLE)
 st.write(APP_SUBTITLE)
+
+# -------------------------------
+# HEADER / INFO SECTION
+# -------------------------------
+st.markdown(
+    """
+This work is carried out at **Plymouth Marine Laboratory (PML), Plymouth, UK**.
+"""
+)
+
+st.markdown("### Related papers")
+st.markdown(
+    f"""
+- [{PAPER1_TITLE}]({PAPER1_LINK})
+- [{PAPER2_TITLE}]({PAPER2_LINK})
+"""
+)
+
+st.markdown("### Data access")
+st.markdown(
+    f"""
+- [Download or browse the nitrate dataset on Zenodo]({DATA_ZENODO_LINK})
+"""
+)
+
+st.info(FUNDING_TEXT)
 
 # -------------------------------
 # HELPERS
@@ -39,7 +81,7 @@ def list_files():
 def open_dataset():
     files = list_files()
     if not files:
-        raise FileNotFoundError("No NetCDF files found.")
+        raise FileNotFoundError("No NetCDF files found in 'compressed/'.")
 
     ds = xr.open_mfdataset(files, combine="by_coords")
 
@@ -75,7 +117,7 @@ def nearest_valid_ij(lat1d, lon1d, valid_mask_2d, click_lat, click_lon):
 
 def make_pretty_cmap():
     cmap = cm.get_cmap("viridis").copy()
-    cmap.set_bad(color="#d9d9d9")  # light grey for land/masked points
+    cmap.set_bad(color="#d9d9d9")
     return cmap
 
 # -------------------------------
@@ -142,7 +184,7 @@ else:
         valid_min = float(np.nanmin(data2d.values))
         valid_max = float(np.nanmax(data2d.values))
 
-    fig, ax = plt.subplots(figsize=(11, 7), dpi=140)
+    fig, ax = plt.subplots(figsize=(8.8, 5.6), dpi=140)
     ax.set_facecolor("#d9d9d9")
 
     pcm = ax.pcolormesh(
@@ -155,23 +197,34 @@ else:
         vmax=valid_max
     )
 
-    cbar = plt.colorbar(pcm, ax=ax, pad=0.02, shrink=0.96)
-    cbar.set_label("Surface nitrate", fontsize=11)
+    # Land-sea boundary from valid ocean mask
+    valid_mask = np.isfinite(data2d.values).astype(float)
+    lon2d, lat2d = np.meshgrid(lon.values, lat.values)
+    ax.contour(
+        lon2d,
+        lat2d,
+        valid_mask,
+        levels=[0.5],
+        colors="black",
+        linewidths=0.7
+    )
+
+    cbar = plt.colorbar(pcm, ax=ax, pad=0.02, shrink=0.92)
+    cbar.set_label(f"Surface nitrate [{NITRATE_UNIT}]", fontsize=10)
     cbar.ax.tick_params(labelsize=9)
 
-    ax.set_title("Machine-Learned Predicted Surface Nitrate", fontsize=16, pad=12, weight="bold")
-    ax.set_xlabel("Longitude", fontsize=11)
-    ax.set_ylabel("Latitude", fontsize=11)
-    ax.tick_params(labelsize=10)
-
-    ax.grid(True, linestyle="--", linewidth=0.4, alpha=0.25)
+    ax.set_title("Machine-Learned Predicted Surface Nitrate", fontsize=14, pad=10, weight="bold")
+    ax.set_xlabel("Longitude [°E]", fontsize=10)
+    ax.set_ylabel("Latitude [°N]", fontsize=10)
+    ax.tick_params(labelsize=9)
+    ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.55, color="0.35")
 
     ax.text(
         0.99, 0.015,
         DOI_TEXT,
         transform=ax.transAxes,
         ha="right", va="bottom",
-        fontsize=9, style="italic",
+        fontsize=8.5, style="italic",
         color="black",
         bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=3)
     )
@@ -227,9 +280,9 @@ point_lon = float(lon.values[i])
 st.write(f"Nearest valid ocean grid point: lat = {point_lat:.4f}, lon = {point_lon:.4f}")
 
 if np.isfinite(point_val):
-    st.write(f"Predicted nitrate on {actual_date}: **{point_val:.4f}**")
+    st.write(f"Predicted nitrate on {actual_date}: **{point_val:.4f} {NITRATE_UNIT}**")
 else:
-    st.write(f"Predicted nitrate on {actual_date}: **NaN / invalid**")
+    st.write("Predicted nitrate on {actual_date}: **NaN / invalid**")
 
 # -------------------------------
 # TIME SERIES PLOT
@@ -239,33 +292,31 @@ st.subheader("Time series at selected grid point")
 if np.all(np.isnan(point_series.values)):
     st.warning("All time-series values are invalid/NaN at this selected grid point.")
 else:
-    fig2, ax2 = plt.subplots(figsize=(11, 4.8), dpi=140)
+    fig2, ax2 = plt.subplots(figsize=(8.8, 3.5), dpi=140)
 
     ax2.plot(
         ds[time_name].values,
         point_series.values,
-        linewidth=1.6
+        linewidth=1.3
     )
-
-    ax2.axvline(np.datetime64(actual_date), linestyle="--", linewidth=1.0, alpha=0.7)
 
     if np.isfinite(point_val):
         ax2.scatter(
             np.datetime64(actual_date),
             point_val,
-            s=35,
+            s=28,
             zorder=3
         )
 
     ax2.set_title(
         f"Machine-Learned Predicted Nitrate Time Series\nlat={point_lat:.3f}, lon={point_lon:.3f}",
-        fontsize=15,
-        pad=10,
+        fontsize=13,
+        pad=8,
         weight="bold"
     )
-    ax2.set_xlabel("Time", fontsize=11)
-    ax2.set_ylabel("Surface nitrate", fontsize=11)
-    ax2.tick_params(labelsize=10)
+    ax2.set_xlabel("Time", fontsize=10)
+    ax2.set_ylabel(f"Surface nitrate [{NITRATE_UNIT}]", fontsize=10)
+    ax2.tick_params(labelsize=9)
     ax2.grid(True, linestyle="--", linewidth=0.5, alpha=0.3)
 
     ax2.text(
@@ -273,7 +324,7 @@ else:
         DOI_TEXT,
         transform=ax2.transAxes,
         ha="right", va="bottom",
-        fontsize=9, style="italic",
+        fontsize=8.5, style="italic",
         color="black",
         bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=3)
     )
