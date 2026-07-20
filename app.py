@@ -3,7 +3,7 @@ import xarray as xr
 import streamlit as st
 import matplotlib.pyplot as plt
 from pathlib import Path
-from matplotlib import cm
+import matplotlib as mpl
 
 # -------------------------------
 # USER SETTINGS
@@ -121,9 +121,7 @@ def nearest_valid_ij(lat1d, lon1d, valid_mask_2d, click_lat, click_lon):
     return int(j), int(i)
 
 def make_pretty_cmap():
-    cmap = cm.get_cmap("viridis").copy()
-    cmap.set_bad(color="#d9d9d9")
-    return cmap
+    return mpl.colormaps["viridis"].with_extremes(bad="#d9d9d9")
 
 @st.cache_data
 def get_dates_for_year(year):
